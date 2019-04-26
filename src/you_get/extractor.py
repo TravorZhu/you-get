@@ -1,11 +1,13 @@
 #!/usr/bin/env python
-
-from .common import match1, maybe_print, download_urls, get_filename, parse_host, set_proxy, unset_proxy, get_content, dry_run, player
-from .common import print_more_compatible as print
-from .util import log
-from . import json_output
+import json
 import os
 import sys
+
+from . import json_output
+from .common import download_urls, dry_run, get_filename, maybe_print, parse_host, player, \
+    print_more_compatible as print, set_proxy, unset_proxy
+from .util import log
+
 
 class Extractor():
     def __init__(self, *args):
@@ -35,6 +37,8 @@ class VideoExtractor():
         self.referer = None
         self.danmaku = None
         self.lyrics = None
+
+        self.data = {}
 
         if args:
             self.url = args[0]
@@ -88,31 +92,39 @@ class VideoExtractor():
         #raise NotImplementedError()
 
     def p_stream(self, stream_id):
+    
         if stream_id in self.streams:
             stream = self.streams[stream_id]
         else:
             stream = self.dash_streams[stream_id]
 
         if 'itag' in stream:
+            self.data['itag'] = stream_id
             print("    - itag:          %s" % log.sprint(stream_id, log.NEGATIVE))
         else:
+            self.data['format'] = stream_id
             print("    - format:        %s" % log.sprint(stream_id, log.NEGATIVE))
 
         if 'container' in stream:
+            self.data['container'] = stream['container']
             print("      container:     %s" % stream['container'])
 
         if 'video_profile' in stream:
+            self.data['container'] = stream['video_profile']
             maybe_print("      video-profile: %s" % stream['video_profile'])
 
         if 'quality' in stream:
+            self.data['quality'] = stream['quality']
             print("      quality:       %s" % stream['quality'])
 
         if 'size' in stream and 'container' in stream and stream['container'].lower() != 'm3u8':
             if stream['size'] != float('inf')  and stream['size'] != 0:
                 print("      size:          %s MiB (%s bytes)" % (round(stream['size'] / 1048576, 1), stream['size']))
+                self.data['size'] = "%s MiB (%s bytes)" % (round(stream['size'] / 1048576, 1), stream['size'])
 
         if 'm3u8_url' in stream:
             print("      m3u8_url:      {}".format(stream['m3u8_url']))
+            self.data['m3u8_url'] = stream['m3u8_url']
 
         if 'itag' in stream:
             print("    # download-with: %s" % log.sprint("you-get --itag=%s [URL]" % stream_id, log.UNDERLINE))
@@ -120,23 +132,41 @@ class VideoExtractor():
             print("    # download-with: %s" % log.sprint("you-get --format=%s [URL]" % stream_id, log.UNDERLINE))
 
         print()
+    
+        with open('tem.json', 'w') as f:
+            f.write(json.dumps(self.data))
 
     def p_i(self, stream_id):
+    
         if stream_id in self.streams:
             stream = self.streams[stream_id]
         else:
             stream = self.dash_streams[stream_id]
 
         maybe_print("    - title:         %s" % self.title)
+        self.data['title'] = self.title
+        self.data['size'] = "%s MiB (%s bytes)" % (round(stream['size'] / 1048576, 1), stream['size'])
+        self.data['url'] = self.url
         print("       size:         %s MiB (%s bytes)" % (round(stream['size'] / 1048576, 1), stream['size']))
         print("        url:         %s" % self.url)
         print()
-
+        with open('tem.json', 'w') as f:
+            f.write(json.dumps(self.data))
         sys.stdout.flush()
 
     def p(self, stream_id=None):
+    
         maybe_print("site:                %s" % self.__class__.name)
+        try:
+            self.data['site'] = self.__class__.name
+        except:
+            parse_host()
         maybe_print("title:               %s" % self.title)
+        try:
+            self.data['title'] = self.title
+        except:
+            pass
+            parse_host()
         if stream_id:
             # Print the stream
             print("stream:")
@@ -168,7 +198,8 @@ class VideoExtractor():
             for i in self.audiolang:
                 print("    - lang:          {}".format(i['lang']))
                 print("      download-url:  {}\n".format(i['url']))
-
+        with open('tem.json', 'w') as f:
+            f.write(json.dumps(self.data))
         sys.stdout.flush()
 
     def p_playlist(self, stream_id=None):
