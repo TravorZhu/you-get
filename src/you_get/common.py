@@ -1,25 +1,25 @@
 #!/usr/bin/env python
 
-import argparse
 import io
-import locale
-import logging
 import os
 import re
-import socket
-import ssl
 import sys
 import time
+import json
+import socket
+import locale
+import logging
+import argparse
+import ssl
 from http import cookiejar
 from importlib import import_module
-from urllib import error, parse, request
+from urllib import request, parse, error
 
-from . import json_output as json_output_
+from .version import __version__
 from .util import log, term
 from .util.git import get_version
 from .util.strings import get_filename, unescape_html
-from .version import __version__
-
+from . import json_output as json_output_
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer,encoding='utf8')
 
 SITES = {
@@ -137,7 +137,6 @@ cookies = None
 output_filename = None
 auto_rename = False
 insecure = False
-gui = False
 
 fake_headers = {
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',  # noqa
@@ -767,51 +766,6 @@ def url_save(
     os.rename(temp_filepath, filepath)
 
 
-class TkProgressBar:
-    def __init__(self, total_size, total_pieces=1):
-        self.displayed = False
-        self.total_size = total_size
-        self.total_pieces = total_pieces
-        self.current_piece = 1
-        self.received = 0
-        self.speed = ''
-        self.last_updated = time.time()
-    
-    def update(self):
-        self.displayed = True
-        global download_inf_queue
-        download_inf_queue.put({
-            'progress': (self.received / self.total_size * 100),
-            'speed': (self.speed)
-        })
-    
-    def update_received(self, n):
-        self.received += n
-        time_diff = time.time() - self.last_updated
-        bytes_ps = n / time_diff if time_diff else 0
-        if bytes_ps >= 1024 ** 3:
-            self.speed = '{:4.0f} GB/s'.format(bytes_ps / 1024 ** 3)
-        elif bytes_ps >= 1024 ** 2:
-            self.speed = '{:4.0f} MB/s'.format(bytes_ps / 1024 ** 2)
-        elif bytes_ps >= 1024:
-            self.speed = '{:4.0f} kB/s'.format(bytes_ps / 1024)
-        else:
-            self.speed = '{:4.0f}  B/s'.format(bytes_ps)
-        self.last_updated = time.time()
-        self.update()
-    
-    def update_piece(self, n):
-        self.current_piece = n
-    
-    def done(self):
-        if self.displayed:
-            print()
-            self.displayed = False
-    
-    
-        
-
-
 class SimpleProgressBar:
     term_size = term.get_terminal_size()[1]
 
@@ -995,15 +949,9 @@ def download_urls(
             log.w('Skipping %s: file already exists' % output_filepath)
             print()
             return
-        if gui:
-            bar = TkProgressBar(total_size, len(urls))
-        else:
-            bar = SimpleProgressBar(total_size, len(urls))
+        bar = SimpleProgressBar(total_size, len(urls))
     else:
-        if gui:
-            bar = TkProgressBar(total_size, len(urls))
-        else:
-            bar = SimpleProgressBar(total_size, len(urls))
+        bar = PiecesProgressBar(total_size, len(urls))
 
     if len(urls) == 1:
         url = urls[0]
@@ -1325,10 +1273,7 @@ def print_more_compatible(*args, **kwargs):
     return ret
 
 
-def download_main(download, download_playlist, urls, playlist, inf_queue, **kwargs):
-    global download_inf_queue
-    download_inf_queue = inf_queue
-    
+def download_main(download, download_playlist, urls, playlist, **kwargs):
     for url in urls:
         if re.match(r'https?://', url) is None:
             url = 'http://' + url
@@ -1480,10 +1425,6 @@ def script_main(download, download_playlist, **kwargs):
         '-h', '--help', action='store_true',
         help='Print this help message and exit'
     )
-    parser.add_argument(
-        '-G', '--gui', action='store_true',
-        help='Open gui'
-    )
 
     dry_run_grp = parser.add_argument_group(
         'Dry-run options', '(no actual downloading)'
@@ -1599,9 +1540,6 @@ def script_main(download, download_playlist, **kwargs):
         # Set level of root logger to DEBUG
         logging.getLogger().setLevel(logging.DEBUG)
 
-    if args.gui:
-        gui = True
-
     global force
     global dry_run
     global json_output
@@ -1676,7 +1614,7 @@ def script_main(download, download_playlist, **kwargs):
             extra['stream_id'] = stream_id
         download_main(
             download, download_playlist,
-            URLs, args.playlist, inf_queue=None,
+            URLs, args.playlist,
             output_dir=args.output_dir, merge=not args.no_merge,
             info_only=info_only, json_output=json_output, caption=caption,
             password=args.password,
@@ -1792,12 +1730,4 @@ def any_download_playlist(url, **kwargs):
 
 
 def main(**kwargs):
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument('--gui', '-g', action="store_true", help='Need to use gui')
-    args = sys.argv
-    
-    if '--gui' in args or '-g' in args:
-        from .ui_main import ui_main
-        ui_main()
-    else:
-        script_main(any_download, any_download_playlist, **kwargs)
+    script_main(any_download, any_download_playlist, **kwargs)

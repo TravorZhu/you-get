@@ -1,10 +1,9 @@
 #!/usr/bin/env python
-import hashlib
-import json
 
 from ..common import *
 from ..extractor import VideoExtractor
 
+import hashlib
 
 class Bilibili(VideoExtractor):
     name = "Bilibili"
