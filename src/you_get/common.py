@@ -1,25 +1,25 @@
 #!/usr/bin/env python
 
+import argparse
 import io
-import os
-import re
-import sys
-import time
-import json
-import socket
 import locale
 import logging
-import argparse
+import os
+import re
+import socket
 import ssl
+import sys
+import time
 from http import cookiejar
 from importlib import import_module
-from urllib import request, parse, error
+from urllib import error, parse, request
 
-from .version import __version__
+from . import json_output as json_output_
 from .util import log, term
 from .util.git import get_version
 from .util.strings import get_filename, unescape_html
-from . import json_output as json_output_
+from .version import __version__
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer,encoding='utf8')
 
 SITES = {
@@ -766,6 +766,51 @@ def url_save(
     os.rename(temp_filepath, filepath)
 
 
+class TkProgressBar:
+    def __init__(self, total_size, total_pieces=1):
+        self.displayed = False
+        self.total_size = total_size
+        self.total_pieces = total_pieces
+        self.current_piece = 1
+        self.received = 0
+        self.speed = ''
+        self.last_updated = time.time()
+    
+    def update(self):
+        self.displayed = True
+        global download_inf_queue
+        download_inf_queue.put({
+            'progress': (self.received / self.total_size * 100),
+            'speed': (self.speed)
+        })
+    
+    def update_received(self, n):
+        self.received += n
+        time_diff = time.time() - self.last_updated
+        bytes_ps = n / time_diff if time_diff else 0
+        if bytes_ps >= 1024 ** 3:
+            self.speed = '{:4.0f} GB/s'.format(bytes_ps / 1024 ** 3)
+        elif bytes_ps >= 1024 ** 2:
+            self.speed = '{:4.0f} MB/s'.format(bytes_ps / 1024 ** 2)
+        elif bytes_ps >= 1024:
+            self.speed = '{:4.0f} kB/s'.format(bytes_ps / 1024)
+        else:
+            self.speed = '{:4.0f}  B/s'.format(bytes_ps)
+        self.last_updated = time.time()
+        self.update()
+    
+    def update_piece(self, n):
+        self.current_piece = n
+    
+    def done(self):
+        if self.displayed:
+            print()
+            self.displayed = False
+    
+    
+        
+
+
 class SimpleProgressBar:
     term_size = term.get_terminal_size()[1]
 
@@ -949,9 +994,9 @@ def download_urls(
             log.w('Skipping %s: file already exists' % output_filepath)
             print()
             return
-        bar = SimpleProgressBar(total_size, len(urls))
+        bar = TkProgressBar(total_size, len(urls))
     else:
-        bar = PiecesProgressBar(total_size, len(urls))
+        bar = TkProgressBar(total_size, len(urls))
 
     if len(urls) == 1:
         url = urls[0]
@@ -1273,7 +1318,10 @@ def print_more_compatible(*args, **kwargs):
     return ret
 
 
-def download_main(download, download_playlist, urls, playlist, **kwargs):
+def download_main(download, download_playlist, urls, playlist, inf_queue, **kwargs):
+    global download_inf_queue
+    download_inf_queue = inf_queue
+    
     for url in urls:
         if re.match(r'https?://', url) is None:
             url = 'http://' + url
